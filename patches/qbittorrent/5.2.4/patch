@@ -12,7 +12,7 @@ index a54e60d..78f5d28 100644
  
      auto *settingsStorage = SettingsStorage::instance();
 diff --git a/src/base/bittorrent/sessionimpl.cpp b/src/base/bittorrent/sessionimpl.cpp
-index 5f3f101..2bdfd7b 100644
+index 5f3f101..c7482d1 100644
 --- a/src/base/bittorrent/sessionimpl.cpp
 +++ b/src/base/bittorrent/sessionimpl.cpp
 @@ -442,20 +442,20 @@ SessionImpl::SessionImpl(QObject *parent)
@@ -111,6 +111,15 @@ index 5f3f101..2bdfd7b 100644
      , m_torrentExportDirectory(BITTORRENT_SESSION_KEY(u"TorrentExportDirectory"_s))
      , m_finishedTorrentExportDirectory(BITTORRENT_SESSION_KEY(u"FinishedTorrentExportDirectory"_s))
      , m_globalDownloadSpeedLimit(BITTORRENT_SESSION_KEY(u"GlobalDLSpeedLimit"_s), 0, lowerLimited(0))
+@@ -543,7 +543,7 @@ SessionImpl::SessionImpl(QObject *parent)
+     , m_networkInterface(BITTORRENT_SESSION_KEY(u"Interface"_s))
+     , m_networkInterfaceName(BITTORRENT_SESSION_KEY(u"InterfaceName"_s))
+     , m_networkInterfaceAddress(BITTORRENT_SESSION_KEY(u"InterfaceAddress"_s))
+-    , m_encryption(BITTORRENT_SESSION_KEY(u"Encryption"_s), 0)
++    , m_encryption(BITTORRENT_SESSION_KEY(u"Encryption"_s), 2)
+     , m_maxActiveCheckingTorrents(BITTORRENT_SESSION_KEY(u"MaxActiveCheckingTorrents"_s), 1)
+     , m_isProxyPeerConnectionsEnabled(BITTORRENT_SESSION_KEY(u"ProxyPeerConnections"_s), false)
+     , m_chokingAlgorithm(BITTORRENT_SESSION_KEY(u"ChokingAlgorithm"_s), ChokingAlgorithm::FixedSlots
 @@ -565,7 +565,7 @@ SessionImpl::SessionImpl(QObject *parent)
      , m_peerTurnover(BITTORRENT_SESSION_KEY(u"PeerTurnover"_s), 4)
      , m_peerTurnoverCutoff(BITTORRENT_SESSION_KEY(u"PeerTurnoverCutOff"_s), 90)
