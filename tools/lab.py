@@ -19,7 +19,7 @@ CANDIDATES = {   # name -> (binary, extra config lines)
     "stock-v1":        ("stock-v1.2.20", []),
     "stock-v2-mmap":   ("stock-v2.0.15", ["Session\\DiskIOType=Default", "Session\\HashingThreadsCount=4"]),
     "stock-v2-pread":  ("stock-v2.0.15", ["Session\\DiskIOType=SimplePreadPwrite", "Session\\HashingThreadsCount=4"]),
-    "final3": ("tuned-final3", []), "final2": ("tuned-final2", []), "final2-encoff": ("tuned-final2", ["Session\\Encryption=2"]),
+    "labenv": ("tuned-labenv", []), "final3": ("tuned-final3", []), "final2": ("tuned-final2", []), "final2-encoff": ("tuned-final2", ["Session\\Encryption=2"]),
     "v2-pread-encoff": ("stock-v2.0.15", ["Session\\DiskIOType=SimplePreadPwrite", "Session\\HashingThreadsCount=4", "Session\\Encryption=2"]),
     "v2-mmap-encoff": ("stock-v2.0.15", ["Session\\DiskIOType=Default", "Session\\HashingThreadsCount=4", "Session\\Encryption=2"]),
     "final": ("tuned-final", []), "final-encoff": ("tuned-final", ["Session\\Encryption=2"]),
@@ -184,7 +184,7 @@ def run(test, cand, label):
     time.sleep(1)
     pids = [c.pid() for c in cands]; c0 = sum(cpu_s(p) for p in pids); t0 = time.time()
     for inst, hh, peers in targets: inst.api("/torrents/addPeers", {"hashes": hh, "peers": peers})
-    done_at = {}; deadline = t0 + 400
+    done_at = {}; deadline = t0 + int(os.environ.get("LAB_DEADLINE", "400"))
     while len(done_at) < len(watch) and time.time() < deadline:
         for w in watch:
             if w.name in done_at: continue

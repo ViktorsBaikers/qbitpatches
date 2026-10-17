@@ -12,7 +12,7 @@ seeding, Plex/\*arr on the same box. Every setting decision is listed in [SETTIN
 |---|---|---|---|
 | official 5.2.4 + lt 1.2.20 release, same racing config | 0.49-0.50 GB/s | 0.58 GB/s | 2.6 / 1.8 |
 | this build, encryption allowed (qBittorrent's stock mode) | 0.58-0.63 GB/s | 0.80 GB/s | 2.3 / 1.5 |
-| **this build, defaults (encryption disabled)** | **1.14-1.23 GB/s** | **2.09-2.27 GB/s** | 1.5 / 0.9 |
+| **this build, defaults (encryption disabled)** | **1.10-1.23 GB/s** | **2.09-2.27 GB/s** | 1.5 / 0.9 |
 
 Ranges are over 2-3 runs. That is about 2.4x download and 3.6x upload over the official release. A 10 Gbit/s link is 1.25 GB/s: this build fills it in both
 directions; the official release reaches 40-45 %.
@@ -26,16 +26,42 @@ directions; the official release reaches 40-45 %.
 | OpenSSL | **3.5 LTS** (3.5.9) | Boost 1.86 asio (pinned by lt 1.2) does not compile against OpenSSL 4.0 |
 | toolchain | userdocs **cross** toolchain (GCC 16.2), generic x86-64, no LTO | see "Build" |
 
-### libtorrent 1.2 vs 2.0 (same qBittorrent 5.2.4, encryption off, 4 peers)
+### libtorrent 1.2 vs 2.0 (same qBittorrent 5.2.4 and config, 8 peers, 50 ms RTT)
 
-| | download | CPU s/GB | upload | CPU s/GB | peak RSS |
+Plaintext (encryption off):
+
+| engine | download | CPU s/GB | upload | CPU s/GB | peak RSS |
 |---|---|---|---|---|---|
-| **1.2.20 + this patch** | 1.06 GB/s | **1.56** | 1.84 GB/s | **0.78** | 4.7 GB (= 4 GiB cache) |
-| 2.0.15, pread disk I/O | 1.06 GB/s | 4.03 | 1.84 GB/s | 1.40 | 0.2 GB |
-| 2.0.15, mmap disk I/O (default) | 0.96 GB/s | 9.89 | 1.89 GB/s | 1.22 | 20.5 GB (whole file mapped) |
+| **1.2.20 + this patch** | **1.10-1.23 GB/s** | **1.5-1.6** | **2.09-2.27 GB/s** | **0.9** | 4.9 GB (= 4 GiB cache) |
+| 1.2.20 stock | 1.12-1.23 GB/s | 1.4-1.6 | 1.05 GB/s | 0.56 | 4.9 GB |
+| 2.0.15 stock, pread disk I/O | 0.92-1.04 GB/s | 4.0-4.5 | 1.96 GB/s | 1.42 | 0.4 GB |
+| 2.0.15 stock, mmap disk I/O (default) | 0.85-0.91 GB/s | 9.5-11.1 | 2.00 GB/s | 1.28 | 20 GB (whole file mapped) |
 
-Same throughput, but 2.0 burns 1.8-6x the CPU per byte. libtorrent runs all peer I/O on **one network thread**,
-so CPU per byte is what caps a single client (see "Limits"). 1.2 stays.
+Encryption allowed (qBittorrent's stock mode, peers negotiate RC4):
+
+| engine | download | CPU s/GB | upload | CPU s/GB |
+|---|---|---|---|---|
+| **1.2.20 + this patch** | **0.58-0.63 GB/s** | **2.3** | **0.80 GB/s** | **1.5** |
+| 1.2.20 stock | 0.49-0.50 GB/s | 2.6 | 0.58 GB/s | 1.8 |
+| 2.0.15 stock, pread | 0.50 GB/s | 5.2 | 0.60 GB/s | 2.0 |
+| 2.0.15 stock, mmap | 0.46 GB/s | 11.5 | 0.59 GB/s | 2.1 |
+
+- Download: 1.2 is 15-30 % faster than 2.0, and 2.0 needs 3-7x the CPU per byte (libtorrent runs all peer I/O on
+  **one network thread**, so CPU per byte is the limit, see "Limits").
+- Upload: stock 1.2 loses (1.05 vs 2.0 GB/s) only because it advertises `reqq` 500 (see below). With this patch
+  (2000, same as 2.0) 1.2 is the fastest and still uses the least CPU.
+- An 18-run bisect (every patched default reverted, alone and in groups) found no download difference between this
+  patch and stock 1.2: all runs fall in 1.10-1.18 GB/s.
+
+### `max_allowed_in_request_queue` is what peers pipeline to you
+
+libtorrent sends `max_allowed_in_request_queue` to every peer as `reqq` in the extension handshake, and a libtorrent
+peer **adopts it unclamped** as its per-connection request queue (`bt_peer_connection.cpp`
+`max_out_request_queue(reqq)`). Consequences:
+- your own `RequestQueueSize` is overridden by each seeder's `reqq` (why sweeping it changed nothing);
+- stock 1.2 (500) caps every leecher at 500 x 16 KiB per RTT = 164 MB/s at 50 ms;
+- a huge value is harmful: Deluge's ltConfig had 50000, so leechers queued 800 MB of requests each and seeding
+  collapsed to 0.53 GB/s at 2.05 CPU s/GB. At 2000: 2.15 GB/s at 0.72 (single-setting bisect).
 
 ## Patches
 
@@ -104,6 +130,36 @@ lab peers ran with encryption allowed, so the numbers above include that fallbac
 encryption can no longer connect. On private trackers these are rare, and they are almost always throttled home
 connections. Set `Session\Encryption=0` to go back.
 
+## Deluge (linuxserver/deluge:libtorrentv1 - Deluge 2.2.0, libtorrent 1.2.20, Docker bridge network)
+
+`deluge/apply_tuning.py <config dir>` edits `core.conf` + `ltconfig.conf` (run it while deluged is stopped). The
+lab ran the exact production image and config in Docker (`tools/dlab.py`), against the same 8 peers:
+
+| Deluge config | download | upload | CPU s/GB down / up |
+|---|---|---|---|
+| before (production) | 0.43-0.45 GB/s | **0** - torrent paused on completion | 2.9 / - |
+| before, ratio fix only | 0.43-0.45 GB/s | 0.37 GB/s | 2.9 / 2.9 |
+| + encryption off | 0.93-0.94 GB/s | 0.53 GB/s | 1.8 / 2.1 |
+| **+ ltConfig fixes (= apply_tuning.py)** | **0.91-0.98 GB/s** | **2.02-2.18 GB/s** | 1.8 / 0.75 |
+| same + `network_mode: host` | 0.93-0.96 GB/s | 2.26-2.33 GB/s | 1.7 / 0.75 |
+| qBittorrent (this build), same setup | 1.11 GB/s | 2.09-2.13 GB/s | 1.6 / 0.9 |
+
+What was wrong:
+- `stop_seed_at_ratio: true` + `stop_seed_ratio: 0.0` - Deluge's `TorrentManager.update()` pauses every finished
+  torrent whose ratio >= 0.0, i.e. immediately. New torrents never seeded.
+- `max_allowed_in_request_queue: 50000` - see above, 4x seeding loss.
+- encryption allowed with RC4 - 2x download cost.
+- smaller items set back to sane values: `max_out_request_queue` 50000, `tick_interval` 100 ms, request/piece
+  timeouts 8/5 s, `peer_timeout`/`inactivity_timeout` 45/60 s (drops idle-but-legal peers on long-term seeds),
+  `min_reconnect_time` 0, `max_failcount` 100, parole mode off, incoming uTP on, outgoing ports bound to
+  60000-64999 in `core.conf`, and 5 settings libtorrent 1.2 no longer has.
+
+Not changed: host networking is ~5 % faster on upload but changes how Traefik reaches the WebUI. Rebuilding the
+image's libtorrent (GCC 15 / clang 21, with this repo's patch) gained only 2-4 % (0.91 -> 0.93/0.95), not worth a
+custom image. The remaining ~15 % gap to qBittorrent sits on libtorrent's network thread (97 % busy, Python threads
+< 10 %); the effective libtorrent settings are otherwise the same. Torrents already in Deluge keep the per-torrent
+`stop_at_ratio` they were added with.
+
 ## Lab
 
 `tools/lab.py`: a network namespace with veth + netem (50 ms RTT), a 20 GB random-data private torrent with 16 MiB
@@ -145,5 +201,6 @@ docker run --rm -v "$PWD":/work -w /work \
 - The script unsets `qbt_cflags`/`qbt_cxxflags`/`qbt_ldflags`. Custom flags go in `CFLAGS`/`CXXFLAGS`/`LDFLAGS`,
   but none are needed.
 
-`tools/` holds the lab script, the DH and RC4 micro-benchmarks, and the per-thread CPU profiler used for the numbers
-above.
+`tools/` holds the lab scripts (`lab.py` qBittorrent, `dlab.py` Deluge in Docker), the DH and RC4 micro-benchmarks,
+the per-thread CPU profiler, and `qbittorrent-lab-env-overrides.patch` (lab only: lets a test build take any libtorrent
+setting from `QBT_LT_OVERRIDES`; never used for release builds).

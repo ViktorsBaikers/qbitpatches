@@ -1,0 +1,184 @@
+diff --git a/src/app/upgrade.cpp b/src/app/upgrade.cpp
+index a54e60d..78f5d28 100644
+--- a/src/app/upgrade.cpp
++++ b/src/app/upgrade.cpp
+@@ -563,7 +563,7 @@ void handleChangedDefaults(const DefaultPreferencesMode mode)
+ 
+     const DefaultValue changedDefaults[] =
+     {
+-        {u"BitTorrent/Session/QueueingSystemEnabled"_s, true, false}
++        {u"BitTorrent/Session/QueueingSystemEnabled"_s, false, false} // racing: never queue new torrents, even for legacy profiles
+     };
+ 
+     auto *settingsStorage = SettingsStorage::instance();
+diff --git a/src/base/bittorrent/sessionimpl.cpp b/src/base/bittorrent/sessionimpl.cpp
+index 5f3f101..794c592 100644
+--- a/src/base/bittorrent/sessionimpl.cpp
++++ b/src/base/bittorrent/sessionimpl.cpp
+@@ -32,6 +32,7 @@
+ #include <algorithm>
+ #include <concepts>
+ #include <cstdint>
++#include <cstdlib>
+ #include <ctime>
+ #include <ranges>
+ #include <string>
+@@ -442,20 +443,20 @@ SessionImpl::SessionImpl(QObject *parent)
+     : Session(parent)
+     , m_DHTBootstrapNodes(BITTORRENT_SESSION_KEY(u"DHTBootstrapNodes"_s), DEFAULT_DHT_BOOTSTRAP_NODES)
+     , m_isDHTEnabled(BITTORRENT_SESSION_KEY(u"DHTEnabled"_s), true)
+-    , m_isLSDEnabled(BITTORRENT_SESSION_KEY(u"LSDEnabled"_s), true)
++    , m_isLSDEnabled(BITTORRENT_SESSION_KEY(u"LSDEnabled"_s), false)
+     , m_isPeXEnabled(BITTORRENT_SESSION_KEY(u"PeXEnabled"_s), true)
+     , m_isIPFilteringEnabled(BITTORRENT_SESSION_KEY(u"IPFilteringEnabled"_s), false)
+     , m_isTrackerFilteringEnabled(BITTORRENT_SESSION_KEY(u"TrackerFilteringEnabled"_s), false)
+     , m_IPFilterFile(BITTORRENT_SESSION_KEY(u"IPFilter"_s))
+     , m_announceToAllTrackers(BITTORRENT_SESSION_KEY(u"AnnounceToAllTrackers"_s), false)
+     , m_announceToAllTiers(BITTORRENT_SESSION_KEY(u"AnnounceToAllTiers"_s), true)
+-    , m_asyncIOThreads(BITTORRENT_SESSION_KEY(u"AsyncIOThreadsCount"_s), 10)
++    , m_asyncIOThreads(BITTORRENT_SESSION_KEY(u"AsyncIOThreadsCount"_s), 16)
+     , m_hashingThreads(BITTORRENT_SESSION_KEY(u"HashingThreadsCount"_s), 1)
+-    , m_filePoolSize(BITTORRENT_SESSION_KEY(u"FilePoolSize"_s), 100)
+-    , m_checkingMemUsage(BITTORRENT_SESSION_KEY(u"CheckingMemUsageSize"_s), 32)
+-    , m_diskCacheSize(BITTORRENT_SESSION_KEY(u"DiskCacheSize"_s), -1)
++    , m_filePoolSize(BITTORRENT_SESSION_KEY(u"FilePoolSize"_s), 5000)
++    , m_checkingMemUsage(BITTORRENT_SESSION_KEY(u"CheckingMemUsageSize"_s), 1024)
++    , m_diskCacheSize(BITTORRENT_SESSION_KEY(u"DiskCacheSize"_s), 4096)
+     , m_diskCacheTTL(BITTORRENT_SESSION_KEY(u"DiskCacheTTL"_s), 60)
+-    , m_diskQueueSize(BITTORRENT_SESSION_KEY(u"DiskQueueSize"_s), (1024 * 1024))
++    , m_diskQueueSize(BITTORRENT_SESSION_KEY(u"DiskQueueSize"_s), (64 * 1024 * 1024))
+     , m_diskIOType(BITTORRENT_SESSION_KEY(u"DiskIOType"_s), DiskIOType::Default)
+     , m_diskIOReadMode(BITTORRENT_SESSION_KEY(u"DiskIOReadMode"_s), DiskIOReadMode::EnableOSCache)
+     , m_diskIOWriteMode(BITTORRENT_SESSION_KEY(u"DiskIOWriteMode"_s), DiskIOWriteMode::EnableOSCache)
+@@ -464,20 +465,20 @@ SessionImpl::SessionImpl(QObject *parent)
+ #else
+     , m_coalesceReadWriteEnabled(BITTORRENT_SESSION_KEY(u"CoalesceReadWrite"_s), false)
+ #endif
+-    , m_usePieceExtentAffinity(BITTORRENT_SESSION_KEY(u"PieceExtentAffinity"_s), false)
+-    , m_isSuggestMode(BITTORRENT_SESSION_KEY(u"SuggestMode"_s), false)
+-    , m_sendBufferWatermark(BITTORRENT_SESSION_KEY(u"SendBufferWatermark"_s), 500)
+-    , m_sendBufferLowWatermark(BITTORRENT_SESSION_KEY(u"SendBufferLowWatermark"_s), 10)
+-    , m_sendBufferWatermarkFactor(BITTORRENT_SESSION_KEY(u"SendBufferWatermarkFactor"_s), 50)
+-    , m_connectionSpeed(BITTORRENT_SESSION_KEY(u"ConnectionSpeed"_s), 30)
++    , m_usePieceExtentAffinity(BITTORRENT_SESSION_KEY(u"PieceExtentAffinity"_s), true)
++    , m_isSuggestMode(BITTORRENT_SESSION_KEY(u"SuggestMode"_s), true)
++    , m_sendBufferWatermark(BITTORRENT_SESSION_KEY(u"SendBufferWatermark"_s), 20480)
++    , m_sendBufferLowWatermark(BITTORRENT_SESSION_KEY(u"SendBufferLowWatermark"_s), 3072)
++    , m_sendBufferWatermarkFactor(BITTORRENT_SESSION_KEY(u"SendBufferWatermarkFactor"_s), 200)
++    , m_connectionSpeed(BITTORRENT_SESSION_KEY(u"ConnectionSpeed"_s), 500)
+     , m_socketSendBufferSize(BITTORRENT_SESSION_KEY(u"SocketSendBufferSize"_s), 0)
+     , m_socketReceiveBufferSize(BITTORRENT_SESSION_KEY(u"SocketReceiveBufferSize"_s), 0)
+-    , m_socketBacklogSize(BITTORRENT_SESSION_KEY(u"SocketBacklogSize"_s), 30)
++    , m_socketBacklogSize(BITTORRENT_SESSION_KEY(u"SocketBacklogSize"_s), 3000)
+     , m_isAnonymousModeEnabled(BITTORRENT_SESSION_KEY(u"AnonymousModeEnabled"_s), false)
+     , m_isQueueingEnabled(BITTORRENT_SESSION_KEY(u"QueueingSystemEnabled"_s), false)
+-    , m_maxActiveDownloads(BITTORRENT_SESSION_KEY(u"MaxActiveDownloads"_s), 3, lowerLimited(-1))
+-    , m_maxActiveUploads(BITTORRENT_SESSION_KEY(u"MaxActiveUploads"_s), 3, lowerLimited(-1))
+-    , m_maxActiveTorrents(BITTORRENT_SESSION_KEY(u"MaxActiveTorrents"_s), 5, lowerLimited(-1))
++    , m_maxActiveDownloads(BITTORRENT_SESSION_KEY(u"MaxActiveDownloads"_s), -1, lowerLimited(-1))
++    , m_maxActiveUploads(BITTORRENT_SESSION_KEY(u"MaxActiveUploads"_s), -1, lowerLimited(-1))
++    , m_maxActiveTorrents(BITTORRENT_SESSION_KEY(u"MaxActiveTorrents"_s), -1, lowerLimited(-1))
+     , m_ignoreSlowTorrentsForQueueing(BITTORRENT_SESSION_KEY(u"IgnoreSlowTorrentsForQueueing"_s), false)
+     , m_downloadRateForSlowTorrents(BITTORRENT_SESSION_KEY(u"SlowTorrentsDownloadRate"_s), 2)
+     , m_uploadRateForSlowTorrents(BITTORRENT_SESSION_KEY(u"SlowTorrentsUploadRate"_s), 2)
+@@ -490,21 +491,21 @@ SessionImpl::SessionImpl(QObject *parent)
+     , m_includeOverheadInLimits(BITTORRENT_SESSION_KEY(u"IncludeOverheadInLimits"_s), false)
+     , m_announceIP(BITTORRENT_SESSION_KEY(u"AnnounceIP"_s))
+     , m_announcePort(BITTORRENT_SESSION_KEY(u"AnnouncePort"_s), 0)
+-    , m_maxConcurrentHTTPAnnounces(BITTORRENT_SESSION_KEY(u"MaxConcurrentHTTPAnnounces"_s), 50)
++    , m_maxConcurrentHTTPAnnounces(BITTORRENT_SESSION_KEY(u"MaxConcurrentHTTPAnnounces"_s), 200)
+     , m_isReannounceWhenAddressChangedEnabled(BITTORRENT_SESSION_KEY(u"ReannounceWhenAddressChanged"_s), false)
+     , m_stopTrackerTimeout(BITTORRENT_SESSION_KEY(u"StopTrackerTimeout"_s), 2)
+-    , m_maxConnections(BITTORRENT_SESSION_KEY(u"MaxConnections"_s), 500, lowerLimited(0, -1))
+-    , m_maxUploads(BITTORRENT_SESSION_KEY(u"MaxUploads"_s), 20, lowerLimited(0, -1))
+-    , m_maxConnectionsPerTorrent(BITTORRENT_SESSION_KEY(u"MaxConnectionsPerTorrent"_s), 100, lowerLimited(0, -1))
+-    , m_maxUploadsPerTorrent(BITTORRENT_SESSION_KEY(u"MaxUploadsPerTorrent"_s), 4, lowerLimited(0, -1))
+-    , m_btProtocol(BITTORRENT_SESSION_KEY(u"BTProtocol"_s), BTProtocol::Both
++    , m_maxConnections(BITTORRENT_SESSION_KEY(u"MaxConnections"_s), 20000, lowerLimited(0, -1))
++    , m_maxUploads(BITTORRENT_SESSION_KEY(u"MaxUploads"_s), -1, lowerLimited(0, -1))
++    , m_maxConnectionsPerTorrent(BITTORRENT_SESSION_KEY(u"MaxConnectionsPerTorrent"_s), -1, lowerLimited(0, -1))
++    , m_maxUploadsPerTorrent(BITTORRENT_SESSION_KEY(u"MaxUploadsPerTorrent"_s), -1, lowerLimited(0, -1))
++    , m_btProtocol(BITTORRENT_SESSION_KEY(u"BTProtocol"_s), BTProtocol::TCP
+         , clampValue(BTProtocol::Both, BTProtocol::UTP))
+     , m_isUTPRateLimited(BITTORRENT_SESSION_KEY(u"uTPRateLimited"_s), true)
+     , m_utpMixedMode(BITTORRENT_SESSION_KEY(u"uTPMixedMode"_s), MixedModeAlgorithm::TCP
+         , clampValue(MixedModeAlgorithm::TCP, MixedModeAlgorithm::Proportional))
+     , m_hostnameCacheTTL(BITTORRENT_SESSION_KEY(u"HostnameCacheTTL"_s), 1200)
+     , m_IDNSupportEnabled(BITTORRENT_SESSION_KEY(u"IDNSupportEnabled"_s), false)
+-    , m_multiConnectionsPerIpEnabled(BITTORRENT_SESSION_KEY(u"MultiConnectionsPerIp"_s), false)
++    , m_multiConnectionsPerIpEnabled(BITTORRENT_SESSION_KEY(u"MultiConnectionsPerIp"_s), true)
+     , m_validateHTTPSTrackerCertificate(BITTORRENT_SESSION_KEY(u"ValidateHTTPSTrackerCertificate"_s), true)
+     , m_SSRFMitigationEnabled(BITTORRENT_SESSION_KEY(u"SSRFMitigation"_s), true)
+     , m_blockPeersOnPrivilegedPorts(BITTORRENT_SESSION_KEY(u"BlockPeersOnPrivilegedPorts"_s), false)
+@@ -524,7 +525,7 @@ SessionImpl::SessionImpl(QObject *parent)
+     , m_isAppendExtensionEnabled(BITTORRENT_SESSION_KEY(u"AddExtensionToIncompleteFiles"_s), false)
+     , m_isUnwantedFolderEnabled(BITTORRENT_SESSION_KEY(u"UseUnwantedFolder"_s), false)
+     , m_refreshInterval(BITTORRENT_SESSION_KEY(u"RefreshInterval"_s), 1500)
+-    , m_isPreallocationEnabled(BITTORRENT_SESSION_KEY(u"Preallocation"_s), false)
++    , m_isPreallocationEnabled(BITTORRENT_SESSION_KEY(u"Preallocation"_s), true)
+     , m_torrentExportDirectory(BITTORRENT_SESSION_KEY(u"TorrentExportDirectory"_s))
+     , m_finishedTorrentExportDirectory(BITTORRENT_SESSION_KEY(u"FinishedTorrentExportDirectory"_s))
+     , m_globalDownloadSpeedLimit(BITTORRENT_SESSION_KEY(u"GlobalDLSpeedLimit"_s), 0, lowerLimited(0))
+@@ -543,7 +544,7 @@ SessionImpl::SessionImpl(QObject *parent)
+     , m_networkInterface(BITTORRENT_SESSION_KEY(u"Interface"_s))
+     , m_networkInterfaceName(BITTORRENT_SESSION_KEY(u"InterfaceName"_s))
+     , m_networkInterfaceAddress(BITTORRENT_SESSION_KEY(u"InterfaceAddress"_s))
+-    , m_encryption(BITTORRENT_SESSION_KEY(u"Encryption"_s), 0)
++    , m_encryption(BITTORRENT_SESSION_KEY(u"Encryption"_s), 2)
+     , m_maxActiveCheckingTorrents(BITTORRENT_SESSION_KEY(u"MaxActiveCheckingTorrents"_s), 1)
+     , m_isProxyPeerConnectionsEnabled(BITTORRENT_SESSION_KEY(u"ProxyPeerConnections"_s), false)
+     , m_chokingAlgorithm(BITTORRENT_SESSION_KEY(u"ChokingAlgorithm"_s), ChokingAlgorithm::FixedSlots
+@@ -565,7 +566,7 @@ SessionImpl::SessionImpl(QObject *parent)
+     , m_peerTurnover(BITTORRENT_SESSION_KEY(u"PeerTurnover"_s), 4)
+     , m_peerTurnoverCutoff(BITTORRENT_SESSION_KEY(u"PeerTurnoverCutOff"_s), 90)
+     , m_peerTurnoverInterval(BITTORRENT_SESSION_KEY(u"PeerTurnoverInterval"_s), 300)
+-    , m_requestQueueSize(BITTORRENT_SESSION_KEY(u"RequestQueueSize"_s), 500)
++    , m_requestQueueSize(BITTORRENT_SESSION_KEY(u"RequestQueueSize"_s), 1500)
+     , m_isExcludedFileNamesEnabled(BITTORRENT_KEY(u"ExcludedFileNamesEnabled"_s), false)
+     , m_excludedFileNames(BITTORRENT_SESSION_KEY(u"ExcludedFileNames"_s))
+     , m_bannedIPs(u"State/BannedIPs"_s, QStringList(), Algorithm::sorted<QStringList>)
+@@ -2043,8 +2044,10 @@ lt::settings_pack SessionImpl::loadLTSettings() const
+     settingsPack.set_int(lt::settings_pack::suggest_mode, isSuggestModeEnabled()
+                          ? lt::settings_pack::suggest_read_cache : lt::settings_pack::no_piece_suggestions);
+ 
+-    settingsPack.set_int(lt::settings_pack::send_buffer_watermark, sendBufferWatermark() * 1024);
+-    settingsPack.set_int(lt::settings_pack::send_buffer_low_watermark, sendBufferLowWatermark() * 1024);
++    // KiB -> bytes; clamp so huge values can't overflow the int and wrap to 0
++    const auto kibToBytes = [](const int kib) { return static_cast<int>(std::min<qint64>(qint64(kib) * 1024, std::numeric_limits<int>::max())); };
++    settingsPack.set_int(lt::settings_pack::send_buffer_watermark, kibToBytes(sendBufferWatermark()));
++    settingsPack.set_int(lt::settings_pack::send_buffer_low_watermark, kibToBytes(sendBufferLowWatermark()));
+     settingsPack.set_int(lt::settings_pack::send_buffer_watermark_factor, sendBufferWatermarkFactor());
+ 
+     settingsPack.set_bool(lt::settings_pack::anonymous_mode, isAnonymousModeEnabled());
+@@ -2174,6 +2177,31 @@ lt::settings_pack SessionImpl::loadLTSettings() const
+         break;
+     }
+ 
++    // LAB ONLY: QBT_LT_OVERRIDES="name=value,name=value" applied last (libtorrent setting names)
++    if (const char *env = std::getenv("QBT_LT_OVERRIDES"))
++    {
++        for (const QString &item : QString::fromLocal8Bit(env).split(u',', Qt::SkipEmptyParts))
++        {
++            const QStringList kv = item.split(u'=');
++            if (kv.size() != 2)
++                continue;
++            const int idx = lt::setting_by_name(kv[0].trimmed().toStdString());
++            if (idx < 0)
++            {
++                LogMsg(u"LAB override: unknown setting %1"_s.arg(kv[0]), Log::WARNING);
++                continue;
++            }
++            const QString v = kv[1].trimmed();
++            if ((idx & lt::settings_pack::type_mask) == lt::settings_pack::string_type_base)
++                settingsPack.set_str(idx, v.toStdString());
++            else if ((idx & lt::settings_pack::type_mask) == lt::settings_pack::int_type_base)
++                settingsPack.set_int(idx, v.toInt());
++            else
++                settingsPack.set_bool(idx, (v == u"1"_s) || (v == u"true"_s));
++            LogMsg(u"LAB override: %1 = %2"_s.arg(kv[0], v), Log::WARNING);
++        }
++    }
++
+     return settingsPack;
+ }
+ 

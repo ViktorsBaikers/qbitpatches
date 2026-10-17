@@ -15,7 +15,7 @@ Each setting was checked against its documentation/source and, where it can matt
 | `ConnectionSpeed` | 30 /s | **500 /s** | whole first announce dialled within a second |
 | `SocketBacklogSize` | 30 | **3000** | burst of incoming leechers at race start |
 | `MaxConcurrentHTTPAnnounces` | 50 | **200** | many torrents announcing at once |
-| `RequestQueueSize` | 500 | **1500** | per-peer ceiling = queue x 16 KiB / RTT (500 -> 164 MB/s at 50 ms, 1500 -> 490 MB/s); lab (8 peers, 2 runs): 2000/3000 within noise |
+| `RequestQueueSize` | 500 | **1500** | per-peer ceiling = queue x 16 KiB / RTT (500 -> 164 MB/s at 50 ms, 1500 -> 490 MB/s); but a libtorrent seeder's `reqq` (its `max_allowed_in_request_queue`) overrides it per connection, so 2000/3000 measured within noise |
 | `SendBufferWatermark` / `Low` / `Factor` | 500 KiB / 10 KiB / 50 % | **20 MiB / 3 MiB / 200 %** | keeps fast high-RTT leechers fed; lab: 64/8/300 and 5/1/100 equal -> kept |
 | `DiskQueueSize` | 1 MiB | **64 MiB** | stock throttles peers when only 1 MiB of writes is pending |
 | `DiskCacheSize` | auto (~1.6 GiB here) | **4096 MiB** | write coalescing + read cache for seeding; lab: 1 GiB/8 GiB same speed |
@@ -132,7 +132,7 @@ value comes from the qBittorrent table above. `patched` = changed by `patches/li
 | `piece_timeout` | 20 | **patched** | re-request stalled pieces sooner |
 | `request_timeout` | 60 | **patched** | re-request stalled blocks sooner |
 | `request_queue_time` | 3 | **patched** | deeper pipeline to fast high-RTT peers |
-| `max_allowed_in_request_queue` | 500 | **patched** | fast leechers may pipeline 32 MiB (HPS; libtorrent 2.0 default) |
+| `max_allowed_in_request_queue` | 500 | **patched** (2000) | advertised as `reqq`, which leechers adopt as their pipeline: 500 caps each at 164 MB/s at 50 ms; 2000 = HPS and lt 2.0 default. Far higher (Deluge had 50000) cost 4x seeding speed |
 | `max_out_request_queue` | 500 | set by qBittorrent | see the qBittorrent table |
 | `whole_pieces_threshold` | 20 | keep | fast peers already get whole pieces (piece < 20 s of their rate); good for 16 MiB racing pieces |
 | `peer_timeout` | 120 | keep | 120 s = protocol keep-alive interval; HPS 20 s would drop legal idle peers on long-term seeds |
