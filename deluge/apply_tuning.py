@@ -5,8 +5,8 @@ Run only while deluged is stopped (it rewrites both files on exit). Lab results:
 """
 import json, sys
 
+# stop_seed_at_ratio (true, ratio 0.0 = pause on completion) is left as configured: pausing on completion is intended
 CORE = {
-    "stop_seed_at_ratio": False,     # with stop_seed_ratio 0.0 every finished torrent was paused -> no seeding at all
     "random_outgoing_ports": True,   # don't bind outgoing connections to 60000-64999
     "enc_in_policy": 2, "enc_out_policy": 2,   # encryption off (RC4 on every byte: 2x download, 4x upload cost)
 }

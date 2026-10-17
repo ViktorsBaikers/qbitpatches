@@ -145,8 +145,6 @@ lab ran the exact production image and config in Docker (`tools/dlab.py`), again
 | qBittorrent (this build), same setup | 1.11 GB/s | 2.09-2.13 GB/s | 1.6 / 0.9 |
 
 What was wrong:
-- `stop_seed_at_ratio: true` + `stop_seed_ratio: 0.0` - Deluge's `TorrentManager.update()` pauses every finished
-  torrent whose ratio >= 0.0, i.e. immediately. New torrents never seeded.
 - `max_allowed_in_request_queue: 50000` - see above, 4x seeding loss.
 - encryption allowed with RC4 - 2x download cost.
 - smaller items set back to sane values: `max_out_request_queue` 50000, `tick_interval` 100 ms, request/piece
@@ -154,7 +152,9 @@ What was wrong:
   `min_reconnect_time` 0, `max_failcount` 100, parole mode off, incoming uTP on, outgoing ports bound to
   60000-64999 in `core.conf`, and 5 settings libtorrent 1.2 no longer has.
 
-Not changed: host networking is ~5 % faster on upload but changes how Traefik reaches the WebUI. Rebuilding the
+Not changed: `stop_seed_at_ratio: true` + `stop_seed_ratio: 0.0` stays as configured - Deluge's
+`TorrentManager.update()` pauses every finished torrent at once (ratio >= 0.0), which is intended here; the upload
+rows above only matter if Deluge seeds. Host networking is ~5 % faster on upload but changes how Traefik reaches the WebUI. Rebuilding the
 image's libtorrent (GCC 15 / clang 21, with this repo's patch) gained only 2-4 % (0.91 -> 0.93/0.95), not worth a
 custom image. The remaining ~15 % gap to qBittorrent sits on libtorrent's network thread (97 % busy, Python threads
 < 10 %); the effective libtorrent settings are otherwise the same. Torrents already in Deluge keep the per-torrent
